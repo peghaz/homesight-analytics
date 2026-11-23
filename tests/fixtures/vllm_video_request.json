@@ -1,0 +1,9 @@
+{
+  "model": "test",
+  "encoding_format": "float",
+  "messages": [
+    {"role": "user", "content": [
+      {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,dmlkZW8x"}}
+    ]}
+  ]
+}

@@ -1,0 +1,14 @@
+# Local test Qdrant; applications and notebooks run on the host.
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    ports:
+      - "127.0.0.1:${QDRANT_HTTP_PORT:-6333}:6333"
+      - "127.0.0.1:${QDRANT_GRPC_PORT:-6334}:6334"
+    environment:
+      QDRANT__SERVICE__API_KEY: ${HOMESIGHT_QDRANT_API_KEY:?Set HOMESIGHT_QDRANT_API_KEY in .env}
+    volumes:
+      - qdrant-data:/qdrant/storage
+
+volumes:
+  qdrant-data:

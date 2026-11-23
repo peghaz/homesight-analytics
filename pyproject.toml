@@ -1,0 +1,77 @@
+[build-system]
+requires = ["uv_build>=0.10,<0.11"]
+build-backend = "uv_build"
+
+[project]
+name = "homesightvideoanalytics"
+version = "0.1.0"
+description = "Sequential camera analytics, external embeddings, and Qdrant search"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "homesight-core @ git+https://github.com/peghaz/homesight-video-consumer@v0.1.0",
+    "numpy>=1.26",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "httpx>=0.28",
+    "qdrant-client>=1.16,<2",
+    "pillow>=11",
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+s3 = ["boto3>=1.35"]
+triton = ["tritonclient[grpc]>=2.54"]
+
+[dependency-groups]
+notebooks = ["jupyter>=1.1.1", "ipykernel>=6"]
+docs = [
+    "sphinx>=8,<10",
+    "myst-parser>=4",
+    "sphinxcontrib-mermaid>=2.1.1,<3",
+]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=6",
+    "ruff>=0.9",
+    "mypy>=1.14",
+    "types-PyYAML>=6",
+    "typer>=0.15",
+    "rich>=13.9",
+    "boto3-stubs[s3]>=1.35",
+    "types-grpcio>=1.85.0.20261122",
+]
+
+[tool.uv.build-backend]
+module-name = "homesight_analytics"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "D", "DTZ", "ANN", "TID", "RUF"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"main.py" = ["D", "ANN", "F841"] # Preserved starter entry point.
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["src/homesight_analytics", "tests", "cli.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not integration'"
+markers = ["integration: explicitly enabled external service or native-media checks"]
+
+[tool.coverage.run]
+branch = true
+source = ["homesight_analytics"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

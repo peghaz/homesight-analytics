@@ -1,0 +1,43 @@
+[catalog]
+database_path = "../data/segments.sqlite3"
+
+[cache]
+local_cache_directory = "../data/cache"
+local_cache_max_bytes = 5368709120
+
+[storage]
+type = "local_directory"
+root_directory = "../data/segments"
+
+[recording]
+staging_directory = "../data/staging"
+segment_duration_seconds = 10
+delete_segments_without_motion = false
+
+[[cameras]]
+camera_name = "front_door"
+rtsp_url = "env:FRONT_DOOR_RTSP_URL"
+
+[embedding_backend]
+type = "vllm"
+model_name = "replace-with-served-multimodal-model"
+embedding_dimension = 1024 # Replace with the deployed model's actual dimension.
+base_url = "http://localhost:8000/v1"
+
+[embedding_backend.input]
+segment_input_mode = "video" # Or "frames".
+transport = "data_url" # Use "url" for accessible S3 video; "tensor" for Triton frames.
+
+[vector_store]
+host = "env:QDRANT_HOST"
+http_port = "env:QDRANT_HTTP_PORT"
+grpc_port = "env:QDRANT_GRPC_PORT"
+collection_name = "env:QDRANT_COLLECTION"
+distance_metric = "cosine"
+
+[indexing]
+interval_seconds = 600
+maximum_retry_attempts = 3
+
+[retention]
+retention_days = 30

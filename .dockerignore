@@ -1,0 +1,16 @@
+.env
+.git
+.venv
+.pytest_cache
+.mypy_cache
+.ruff_cache
+__pycache__/
+*.py[oc]
+build/
+dist/
+data/
+.cache/
+.coverage
+.ipynb_checkpoints/
+**/*.key
+**/*.pem

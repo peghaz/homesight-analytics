@@ -1,0 +1,26 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+/.superpowers/
+/.pytest_cache/
+/.mypy_cache/
+/.ruff_cache/
+/CMakeUserPresets.json
+/.env
+
+# Agentic plan files
+*plan_*.md
+*_PROGRESS.md
+# Local analytics state and verification artifacts
+/.cache/
+/data/
+/.coverage
+/htmlcov/
+.ipynb_checkpoints/

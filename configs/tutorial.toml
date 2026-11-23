@@ -1,0 +1,47 @@
+# Live S3 recording and search; load with env_file=Path(".env").
+[catalog]
+database_path = "../data/tutorial/segments.sqlite3"
+
+[cache]
+local_cache_directory = "../data/tutorial/cache"
+
+[storage]
+type = "s3"
+bucket_name = "env:S3_BUCKET"
+endpoint_url = "env:S3_ENDPOINT"
+access_key_id = "env:S3_ACCESS_KEY"
+secret_access_key = "env:S3_SECRET_KEY"
+session_token = "env:S3_SESSION_TOKEN"
+key_prefix = "homesight-analytics-tutorial"
+region = "us-east-1"
+use_path_style_addressing = true
+verify_tls_certificates = true
+
+[recording]
+staging_directory = "../data/tutorial/staging"
+segment_duration_seconds = 10
+delete_segments_without_motion = false
+
+[[cameras]]
+camera_name = "example_trial"
+rtsp_url = "env:TEST_RTSP_URL"
+
+[embedding_backend]
+type = "vllm"
+base_url = "env:HOMESIGHT_MODEL_BASE_URL"
+model_name = "env:HOMESIGHT_MODEL_NAME"
+embedding_dimension = "env:HOMESIGHT_EMBEDDING_DIMENSION"
+
+[embedding_backend.input]
+segment_input_mode = "frames"
+transport = "data_url"
+frame_count = 8
+frame_width = 448
+frame_height = 448
+
+[vector_store]
+host = "env:QDRANT_HOST"
+http_port = "env:QDRANT_HTTP_PORT"
+grpc_port = "env:QDRANT_GRPC_PORT"
+collection_name = "env:QDRANT_COLLECTION"
+distance_metric = "cosine"
