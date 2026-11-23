@@ -1,6 +1,6 @@
 # HomeSight Analytics
 
-`homesight_analytics` records camera streams through HomeSight Core, sends stored video or sampled frames to external embedding models, and searches the resulting vectors in Qdrant. Backend applications can run one finite analytics job per stream and wrap that call in their own Celery tasks.
+`homesight_analytics` records camera streams through [HomeSight Core](https://github.com/peghaz/homesight-video-consumer), sends stored video or sampled frames to external embedding models, and searches the resulting vectors in Qdrant. Backend applications can run one finite analytics job per stream and wrap that call in their own Celery tasks.
 
 ```python
 from pathlib import Path
