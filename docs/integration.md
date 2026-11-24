@@ -101,15 +101,18 @@ backend = VllmEmbeddingBackend(
     base_url="http://localhost:8000/v1",
     model_name="your-served-model",
     embedding_dimension=1024,
-    segment_input_encoder=create_input_encoder(ModelInputConfig(segment_input_mode="frames")),
+    model_identifier="your-model:frames-2fps-448-v1",
+    segment_input_encoder=create_input_encoder(
+        ModelInputConfig(segment_input_mode="frames", frames_per_second=2)
+    ),
 )
 ```
 
-The vLLM builder targets the documented `/v1/embeddings` chat-style multimodal schema: each segment is a separate `messages` prompt. Query requests default to standard text `input` lists. Models that require chat-formatted queries can select `query_request_builder="vllm_multimodal"` and an `instruction_prefix`. Request/response fixtures record this protocol contract; no specific deployed model or vLLM release has been certified. Confirm your server's chat template and modality support against [its version's embedding documentation](https://docs.vllm.ai/en/stable/models/pooling_models/embed/).
+The vLLM builder targets the documented `/v1/embeddings` chat-style multimodal schema: each segment is a separate `messages` prompt containing its complete chronological image sequence. The endpoint must return one shared-space embedding per segment; per-frame vectors are rejected and never averaged. Query requests default to standard text `input` lists. Models that require chat-formatted queries can select `query_request_builder="vllm_multimodal"` and an `instruction_prefix`. Request/response fixtures record this protocol contract; no specific deployed model or vLLM release has been certified. Confirm your server's chat template, modality support, and image-count/request-size limits against [its version's embedding documentation](https://docs.vllm.ai/en/stable/models/pooling_models/embed/). Frames are never silently truncated for endpoint limits.
 
 The response parser supports dotted paths and `[*]`, such as `data[*].embedding` or `vectors`. Vectors must match the configured batch count and dimension and contain finite nonzero values. The shared client validates and normalizes custom backends too. Standard response indexes restore out-of-order rows. Retry policy belongs to `BatchingEmbeddingClient`, outside the protocol adapter.
 
-Triton is available through `homesight_analytics.triton.TritonGrpcEmbeddingBackend`. Set input/output tensor names, model version, and TLS explicitly. Metadata is validated at construction. The deployed model must accept its video and text modalities independently; optional inputs are demonstrated in `tests/triton_model_repository`.
+Triton is available through `homesight_analytics.triton.TritonGrpcEmbeddingBackend`. Set input/output tensor names, model version, and TLS explicitly. Metadata is validated at construction and each input must match its dtype and shape. Equal-shaped tensors are batched; different frame counts use separate requests and results are combined in original segment order. Use a dynamic time dimension for variable-length rate sampling. The deployed model must accept its video and text modalities independently; optional inputs and a dynamic time dimension are demonstrated in `tests/triton_model_repository`.
 
 ## Other recording and model sources
 
@@ -118,6 +121,10 @@ Implement `RecordingSource` for a new recorder. Return validated `SegmentEvent` 
 For already-recorded footage, call `catalog.register_completed_segment(SegmentSnapshot(...))` with an aware UTC interval and a usable archive URI. Increase `state_revision` whenever the source changes. Unknown motion is represented by `MotionInfo(status="unavailable")` and is eligible for indexing.
 
 Implement `SegmentStorageReader` and `SegmentMediaProvider` for another archive system. A media provider supports context management and releases temporary files/cache pins in `close()`. Local/S3 readers are already supplied by `CoreSegmentStorageReader`. Files handed out from the S3 cache remain pinned until that provider closes; oversized downloads or a cache entirely occupied by active media fail explicitly.
+
+The original `SegmentMediaProvider` contract remains unchanged. Optionally implement `RateSamplingMediaProvider.sample_frames_at_rate(frames_per_second, frame_width, frame_height)` to return validated `SampledFrames` with RGB uint8 pixels and matching clip-relative `timestamps_ms`. Selecting a rate with a provider lacking this capability raises `ConfigurationError`; fixed-count custom providers continue to work. A positive `ModelInputConfig.frames_per_second` overrides `frame_count`; omission preserves the eight-frame default. Core v0.1.1 supplies the built-in capability using the same pinned local-file cache, CPU decoding, and ten-second timeout defaults. It includes partial final seconds and leaves empty intervals unpadded.
+
+Custom encoders can call `homesight_analytics.encoding.sample_segment_frames(media, config)` to share the built-in sampling selection; it returns `(frames, timestamps_ms)`, with timestamps `None` for legacy fixed-count sampling. Built-in JPEG and tensor encoders preserve rate timestamps in `EncodedInput.timestamps_ms`. The default HTTP builder uses only the image parts, so times add no wire fields. Native decoding, output-limit, and allocation failures are chained `StorageError` values and retain per-segment recovery.
 
 Implement `EmbeddingBackend`, `InputEncoder`, `EmbeddingRequestBuilder`, or `VectorResponseParser` for a different inference server or preprocessing scheme. Constructor injection supports each interface. File configuration can select registered components through `register_embedding_backend()`, `register_input_encoder()`, `register_request_builder()`, and `register_vector_response_parser()`. Installed backend plugins use the `homesight_analytics.embedding_backends` entry-point group.
 

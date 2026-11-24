@@ -192,24 +192,37 @@ class TritonGrpcEmbeddingBackend(EmbeddingBackend):
     def compute_segment_embeddings(
         self, inputs: Sequence[SegmentEmbeddingInput]
     ) -> EmbeddingBatchResult:
-        """Send sampled frame tensors in input order."""
-        arrays = list[NDArray[np.uint8] | NDArray[np.float32]]()
-        for item in inputs:
+        """Batch compatible shapes and restore segment order after variable-length requests."""
+        groups = dict[
+            tuple[tuple[int, ...], str],
+            list[tuple[int, NDArray[np.uint8] | NDArray[np.float32]]],
+        ]()
+        for index, item in enumerate(inputs):
             tensor: NDArray[np.uint8] | NDArray[np.float32] | None = self.__encoder.encode_segment(
                 item.get_media_provider()
             ).tensor
             if tensor is None:
                 raise ConfigurationError("Triton segment encoder must return a tensor")
-            arrays.append(tensor)
-        if not arrays:
-            return EmbeddingBatchResult(
-                embeddings=np.empty((0, self.embedding_dimension), dtype=np.float32),
-                model_identifier=self.model_identifier,
-            )
-        array: NDArray[np.generic] = np.concatenate(arrays)
-        return self.__infer(
-            self.__video_name, array, "UINT8" if array.dtype == np.uint8 else "FP32"
+            if (
+                tensor.ndim == 0
+                or tensor.shape[0] != 1
+                or tensor.dtype not in (np.uint8, np.float32)
+            ):
+                raise ConfigurationError(
+                    "Triton segment encoder must return one batched uint8/float32 tensor"
+                )
+            key: tuple[tuple[int, ...], str] = (tensor.shape[1:], tensor.dtype.str)
+            groups.setdefault(key, []).append((index, tensor))
+        matrix: NDArray[np.float32] = np.empty(
+            (len(inputs), self.embedding_dimension), dtype=np.float32
         )
+        for group in groups.values():
+            array: NDArray[np.generic] = np.concatenate([tensor for _, tensor in group])
+            result: EmbeddingBatchResult = self.__infer(
+                self.__video_name, array, "UINT8" if array.dtype == np.uint8 else "FP32"
+            )
+            matrix[[index for index, _ in group]] = result.embeddings
+        return EmbeddingBatchResult(embeddings=matrix, model_identifier=self.model_identifier)
 
     def compute_query_text_embeddings(
         self, inputs: Sequence[QueryTextEmbeddingInput]

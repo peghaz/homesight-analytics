@@ -44,6 +44,7 @@ See [backend adapters](integration.md#other-recording-and-model-sources) for app
 | `RecordingSource` | One unique camera name; nonblocking event reads; stable IDs, increasing revisions and recoverable unacknowledged events; bounded stop and explicit close |
 | `SegmentStorageReader` | Open lazy media, generate playback locations, delete idempotently, release owned resources |
 | `SegmentMediaProvider` | Original bytes/local path/URL as needed; RGB uint8 frames shaped T×H×W×C; context-managed cache pins and temporary files |
+| `RateSamplingMediaProvider` | Optional `sample_frames_at_rate()` returning `SampledFrames`: nonempty RGB uint8 pixels, matching nonnegative chronological clip-relative timestamps, no padding/duplication |
 | `MotionAnalyzerFactory`, `MotionAnalyzer` | Fresh analyzer per run/reset; chronological analysis; reset state on discontinuities; return tri-state `MotionInfo` |
 | `EmbeddingBackend` | Stable nonempty model identity, positive dimension and request capacity; one vector per input in order; same space for segments/text; close clients |
 | `InputEncoder` | Read only the needed media representation and return `EncodedInput`; model-specific normalization belongs here |
@@ -52,11 +53,13 @@ See [backend adapters](integration.md#other-recording-and-model-sources) for app
 
 `EmbeddingBatchResult` rejects malformed, zero, or non-finite vectors, normalizes rows to float32, and makes the array read-only. The batching client also checks count, dimension, and model identity for custom backends. Raise `RetryableEmbeddingError` only for transient failures; other domain failures are persisted without transport retries. Unexpected exceptions fail the finite job and propagate to its host.
 
+Rate sampling is an optional capability rather than an added method on `SegmentMediaProvider`, preserving existing custom providers. The JPEG and tensor encoders share sampling selection, retain `EncodedInput.timestamps_ms`, and preserve the full chronological frame sequence. HTTP requires one vector per segment prompt. Triton groups equal-shaped tensors and restores vector order across variable-length requests; server metadata must match every submitted shape and dtype. Native `SegmentDecodingError`, `InvalidConfigError` (including output limits), and `MemoryError` are chained into `StorageError` at the storage adapter.
+
 Registry names are unique and process-local. Register components before loading configuration. Backend plugins can be exposed through the `homesight_analytics.embedding_backends` entry-point group; factories are discovered when file-configured backends are created. Explicit constructor injection remains available without plugin discovery. Backend `custom_options` must be validated by the backend constructor.
 
 ## Consumer dependency updates
 
-The native dependency is pinned in `pyproject.toml` to `homesight-core` at Git tag `v0.1.0`. The sibling consumer checkout is a useful reference but is not automatically the installed dependency.
+The native dependency is pinned in `pyproject.toml` to `homesight-core` at Git tag `v0.1.1`, which supplies `sample_clip_frames_from_segment_at_rate()`. The sibling consumer checkout is a useful reference but is not automatically the installed dependency.
 
 When adopting a new consumer release:
 
@@ -90,7 +93,7 @@ uv run --group docs mypy docs/conf.py docs/examples/offline.py
 
 Routine tests exclude the `integration` marker and use deterministic embeddings, mocked HTTP/gRPC transports, and in-memory Qdrant. The `s3` extra enables the signing test that otherwise skips. Coverage includes branches and enforces an 80% floor. Tests must not use production credentials or live third-party services implicitly.
 
-The existing workflow runs these checks, native frame sampling, and packaging on Ubuntu. This documentation change does not alter CI platforms or introduce hosting.
+The existing workflow runs these checks, native frame sampling, and packaging on Ubuntu.
 
 Notebook dependencies are isolated in the `notebooks` group. `notebooks/ExampleTrial.ipynb` follows the consumer's numbered tutorial pattern and uses `configs/tutorial.toml` plus the root `.env`. Its live cells require a real camera, existing S3 bucket, served model, and the local test Qdrant service. Keep committed notebook execution counts empty and outputs cleared. The offline script remains the service-free executable example.
 
@@ -100,10 +103,10 @@ Native video decoding can be checked locally without a camera or server:
 
 ```sh
 gst-inspect-1.0 x264enc
-uv run pytest -m integration tests/test_integrations.py::test_native_video_frame_sampling
+uv run pytest -m integration tests/test_integrations.py -k native
 ```
 
-The fixture generates a small H.264 MP4 using `gst-launch-1.0`, `x264enc`, `h264parse`, and `mp4mux`, then samples RGB frames through the installed native adapter. It skips if the launcher is unavailable; a present launcher with missing plugins fails fixture creation.
+The fixtures generate H.264 MP4s using `gst-launch-1.0`, `x264enc`, `h264parse`, and `mp4mux`. Native checks cover unchanged fixed-count decoding, 2 fps, partial final seconds, sparse/short footage, corrupt containers, explicit output-limit failure, and repeated decoding from the pinned S3 cache with mocked downloads. They skip if the launcher is unavailable; a present launcher with missing plugins fails fixture creation. Routine mocked HTTP tests verify the complete ordered frame sequence in one prompt, exactly one returned embedding and Qdrant point per segment, and continued processing after native allocation failure. Live endpoint compatibility and request-size limits remain deployment checks.
 
 For external service checks, supply isolated test resources and run:
 
@@ -153,7 +156,7 @@ Open `build/docs/html/index.html`, follow the four guide/reference links, use th
 
 Sphinx, MyST Parser, and Mermaid are isolated in the `docs` dependency group, using the consumer's version ranges and Alabaster theme. The version comes from `pyproject.toml`. API directives import the installed package rather than adjusting `sys.path` to the source tree; imports do not create recorders or inference clients. API entries are documented once, with explicit configuration/report fields and no inherited Pydantic internals. [Sphinx autodoc](https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html) reads signatures and docstrings; Napoleon handles Google-style sections and autosummary supplies linked entry-point summaries.
 
-The build needs the installed native library but no live cameras, Qdrant/model servers, `boto3`, or `tritonclient`. The optional Triton module imports its SDK only when constructing a backend. Browser rendering loads pinned Mermaid 11.12.1 from a CDN; viewing diagrams requires network access to that renderer. Generating HTML itself does not fetch the renderer or require a network service. No Doxygen/Breathe step is needed: the consumer owns the [native API reference](https://github.com/peghaz/homesight-video-consumer/blob/v0.1.0/docs/cpp-api.rst).
+The build needs the installed native library but no live cameras, Qdrant/model servers, `boto3`, or `tritonclient`. The optional Triton module imports its SDK only when constructing a backend. Browser rendering loads pinned Mermaid 11.12.1 from a CDN; viewing diagrams requires network access to that renderer. Generating HTML itself does not fetch the renderer or require a network service. No Doxygen/Breathe step is needed: the consumer owns the [native API reference](https://github.com/peghaz/homesight-video-consumer/blob/v0.1.1/docs/cpp-api.rst).
 
 ## Known verification limitations
 

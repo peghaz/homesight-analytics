@@ -1,6 +1,6 @@
 # HomeSight Analytics
 
-`homesight_analytics` records camera streams through [HomeSight Core](https://github.com/peghaz/homesight-video-consumer), sends stored video or sampled frames to external embedding models, and searches the resulting vectors in Qdrant. Backend applications can run one finite analytics job per stream and wrap that call in their own Celery tasks.
+`homesight_analytics` records camera streams through [HomeSight Core v0.1.1](https://github.com/peghaz/homesight-video-consumer/tree/v0.1.1), sends stored video or sampled frames to external embedding models, and searches the resulting vectors in Qdrant. Backend applications can run one finite analytics job per stream and wrap that call in their own Celery tasks.
 
 ```python
 from pathlib import Path
@@ -56,14 +56,19 @@ type = "vllm"
 model_name = "your-served-multimodal-model"
 embedding_dimension = 1024
 base_url = "http://localhost:8000/v1"
+model_identifier = "your-model:frames-2fps-448-v1"
 
 [embedding_backend.input]
 segment_input_mode = "frames" # "video" sends the original container instead.
 transport = "data_url"
-frame_count = 8
+frames_per_second = 2
 frame_width = 448
 frame_height = 448
 ```
+
+A positive integer `frames_per_second` overrides `frame_count` in frames mode. Omit it to use uniform fixed-count sampling (`frame_count = 8` by default). Rate sampling includes partial final seconds; actual counts depend on duration and available source frames, with no duplicated or padded frames. All selected JPEG images form one chronological segment prompt. The endpoint must accept the complete sequence and return one shared-space embedding for the segment; the library stores one Qdrant point and does not average per-frame vectors or truncate requests to fit endpoint limits. Actual endpoint compatibility and request-size limits require deployment checks.
+
+When switching sampling, dimensions, or other preprocessing, select a fresh `model_identifier` and Qdrant collection, then [mark retained footage for reindexing](docs/user-guide.md#changing-models) and index it again. The catalog schema and search API stay the same.
 
 A per-job override is available as `--input-mode frames` or the `segment_input_mode` argument to `load_homesight_from_config_file()`. MP4, MOV, and Matroska bytes retain their container and MIME type; the deployed model must support the selected container. No automatic transcoding occurs. Frame decoding uses the native GStreamer implementation and its installed plugins.
 

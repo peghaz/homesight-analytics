@@ -13,8 +13,8 @@ from pydantic import ConfigDict, Field, JsonValue
 
 from .config_models import ModelInputConfig
 from .errors import ConfigurationError
-from .interfaces import SegmentMediaProvider
-from .models import ValueModel
+from .interfaces import RateSamplingMediaProvider, SegmentMediaProvider
+from .models import SampledFrames, ValueModel
 
 
 class EncodedPart(ValueModel):
@@ -44,6 +44,8 @@ class EncodedInput(ValueModel):
     parts: list[EncodedPart] = Field(default_factory=list)
     #: Optional uint8/float32 tensor for non-HTTP inference.
     tensor: NDArray[np.uint8] | NDArray[np.float32] | None = None
+    #: Actual clip-relative frame times for rate sampling; omitted from default wire payloads.
+    timestamps_ms: list[int] | None = None
 
 
 class InputEncoder(ABC):
@@ -89,6 +91,25 @@ class VideoUrlEncoder(InputEncoder):
         return EncodedInput(parts=[EncodedPart(type="video_url", url=url)])
 
 
+def sample_segment_frames(
+    media: SegmentMediaProvider, config: ModelInputConfig
+) -> tuple[NDArray[np.uint8], list[int] | None]:
+    """Select rate sampling when requested while preserving legacy provider support."""
+    if config.frames_per_second is None:
+        return (
+            media.sample_frames(config.frame_count, config.frame_width, config.frame_height),
+            None,
+        )
+    if not isinstance(media, RateSamplingMediaProvider):
+        raise ConfigurationError(
+            "Media provider does not support rate sampling (sample_frames_at_rate)"
+        )
+    sampled: SampledFrames = media.sample_frames_at_rate(
+        config.frames_per_second, config.frame_width, config.frame_height
+    )
+    return sampled.frames, sampled.timestamps_ms
+
+
 class SampledFramesAsImagesEncoder(InputEncoder):
     """Send sampled RGB frames as JPEG image parts."""
 
@@ -99,16 +120,14 @@ class SampledFramesAsImagesEncoder(InputEncoder):
     def encode_segment(self, media: SegmentMediaProvider) -> EncodedInput:
         """Preserve chronological frame order within one segment prompt."""
         config: ModelInputConfig = self.__config
-        frames: NDArray[np.uint8] = media.sample_frames(
-            config.frame_count, config.frame_width, config.frame_height
-        )
+        frames, timestamps_ms = sample_segment_frames(media, config)
         parts = list[EncodedPart]()
         for frame in frames:
             with io.BytesIO() as buffer:
                 Image.fromarray(frame).save(buffer, format="JPEG", quality=config.jpeg_quality)
                 encoded: str = base64.b64encode(buffer.getvalue()).decode("ascii")
             parts.append(EncodedPart(type="image_url", url="data:image/jpeg;base64," + encoded))
-        return EncodedInput(parts=parts)
+        return EncodedInput(parts=parts, timestamps_ms=timestamps_ms)
 
 
 class SampledFramesTensorEncoder(InputEncoder):
@@ -121,15 +140,13 @@ class SampledFramesTensorEncoder(InputEncoder):
     def encode_segment(self, media: SegmentMediaProvider) -> EncodedInput:
         """Return a batched frame tensor in BTHWC or BTCHW layout."""
         config: ModelInputConfig = self.__config
-        frames: NDArray[np.uint8] = media.sample_frames(
-            config.frame_count, config.frame_width, config.frame_height
-        )
+        frames, timestamps_ms = sample_segment_frames(media, config)
         tensor: NDArray[np.uint8] | NDArray[np.float32] = frames[np.newaxis, ...]
         if config.tensor_layout == "BTCHW":
             tensor = tensor.transpose(0, 1, 4, 2, 3)
         if config.tensor_dtype == "float32":
             tensor = tensor.astype(np.float32)
-        return EncodedInput(tensor=np.ascontiguousarray(tensor))
+        return EncodedInput(tensor=np.ascontiguousarray(tensor), timestamps_ms=timestamps_ms)
 
 
 class QueryTextEncoder:

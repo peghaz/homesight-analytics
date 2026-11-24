@@ -827,7 +827,7 @@ wheels = [
 [[package]]
 name = "homesight-core"
 version = "0.1.0"
-source = { git = "https://github.com/peghaz/homesight-video-consumer?rev=v0.1.0#8b1960aa453ec09c4c62a5cca37051544ae9f57a" }
+source = { git = "https://github.com/peghaz/homesight-video-consumer?rev=v0.1.1#68bcbb4e3d6a99314b8e159ec8115208b21934a2" }
 dependencies = [
     { name = "numpy" },
 ]
@@ -881,7 +881,7 @@ notebooks = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", marker = "extra == 's3'", specifier = ">=1.35" },
-    { name = "homesight-core", git = "https://github.com/peghaz/homesight-video-consumer?rev=v0.1.0" },
+    { name = "homesight-core", git = "https://github.com/peghaz/homesight-video-consumer?rev=v0.1.1" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pillow", specifier = ">=11" },

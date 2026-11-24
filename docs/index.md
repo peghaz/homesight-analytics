@@ -1,6 +1,6 @@
 # HomeSight Analytics
 
-Record camera footage continuously, index stored segments with an externally served embedding model, and search them by text. The Python library composes [HomeSight Core](https://github.com/peghaz/homesight-video-consumer/tree/v0.1.0), a host-local SQLite catalog, and Qdrant. It does not load model weights or require a task framework.
+Record camera footage continuously, index stored segments with an externally served embedding model, and search them by text. The Python library composes [HomeSight Core](https://github.com/peghaz/homesight-video-consumer/tree/v0.1.1), a host-local SQLite catalog, and Qdrant. It does not load model weights or require a task framework.
 
 ## Quick start
 
@@ -36,7 +36,7 @@ development
 python-api
 ```
 
-The user guide covers operation and configuration. The integration guide covers ownership and backend adapters. The developer guide covers package structure and verification. The Python reference reads signatures and docstrings from the installed package; the consumer maintains the [native C++ reference](https://github.com/peghaz/homesight-video-consumer/blob/v0.1.0/docs/cpp-api.rst).
+The user guide covers operation and configuration. The integration guide covers ownership and backend adapters. The developer guide covers package structure and verification. The Python reference reads signatures and docstrings from the installed package; the consumer maintains the [native C++ reference](https://github.com/peghaz/homesight-video-consumer/blob/v0.1.1/docs/cpp-api.rst).
 
 ## Architecture
 

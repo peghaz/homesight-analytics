@@ -18,5 +18,5 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run mypy
       - run: uv run --extra s3 pytest --cov=homesight_analytics --cov-report=term-missing
-      - run: uv run pytest -m integration tests/test_integrations.py::test_native_video_frame_sampling
+      - run: uv run pytest -m integration tests/test_integrations.py -k native
       - run: uv build

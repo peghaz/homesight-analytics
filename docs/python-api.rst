@@ -94,6 +94,11 @@ environment precedence, and credential boundary.
 
 .. autoclass:: ModelInputConfig
 
+``frames_per_second`` is an optional positive integer for frames mode and overrides
+``frame_count``. Omission preserves uniform fixed-count sampling (eight by default).
+Core v0.1.1 rate sampling includes partial final seconds without duplicating or
+padding frames. Actual counts depend on duration and available source frames.
+
 .. autoclass:: EmbeddingBackendConfig
 
 .. autoclass:: homesight_analytics.configuration.VectorStoreConfig
@@ -160,6 +165,12 @@ describes ordering, recovery, shape, and resource-lifetime requirements.
 .. autoclass:: SegmentMediaProvider
    :special-members: __enter__
 
+.. autoclass:: RateSamplingMediaProvider
+
+This optional capability leaves the original media-provider contract unchanged.
+Selecting a rate without it raises ``ConfigurationError``. Native decoding,
+output-limit, and allocation failures become chained ``StorageError`` values.
+
 .. autoclass:: MotionAnalyzer
 
 .. autoclass:: MotionAnalyzerFactory
@@ -213,6 +224,14 @@ it with one segment at a time. Fake embeddings verify wiring, not semantics.
 
 .. autoclass:: EncodedInput
 
+.. autoclass:: SampledFrames
+
+``SampledFrames`` validates nonempty RGB uint8 pixels shaped ``(T, H, W, 3)``,
+matching frame/timestamp counts, and nonnegative chronological clip-relative
+millisecond times. Rate encoders preserve times in ``EncodedInput.timestamps_ms``;
+the default HTTP builder adds no timestamp fields or text. All selected images
+belong to one segment prompt and require one returned shared-space vector.
+
 .. autoclass:: EmbeddingRequest
 
 .. autoclass:: VideoDataUrlEncoder
@@ -222,6 +241,8 @@ it with one segment at a time. Fake embeddings verify wiring, not semantics.
 .. autoclass:: SampledFramesAsImagesEncoder
 
 .. autoclass:: SampledFramesTensorEncoder
+
+.. autofunction:: homesight_analytics.encoding.sample_segment_frames
 
 .. autoclass:: QueryTextEncoder
 
@@ -265,6 +286,13 @@ the ``triton`` extra and validates metadata against the deployed model. Unlike
 the HTTP backend's construction, this contacts the server. Defaults on the
 direct constructor can differ from ``EmbeddingBackendConfig`` values supplied
 by the file factory, notably timeout and request capacity.
+
+Equal-shaped tensors are batched; different frame counts use separate requests
+and returned vectors retain input order. Each tensor must match server metadata;
+variable counts usually require a dynamic time dimension. No padding or
+truncation is applied. A preprocessing change needs a fresh model identifier and
+collection followed by retained-footage reindexing; catalog and search APIs are
+unchanged.
 
 .. autoclass:: homesight_analytics.triton.TritonGrpcEmbeddingBackend
 

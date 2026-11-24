@@ -31,11 +31,14 @@ type = "vllm"
 base_url = "env:HOMESIGHT_MODEL_BASE_URL"
 model_name = "env:HOMESIGHT_MODEL_NAME"
 embedding_dimension = "env:HOMESIGHT_EMBEDDING_DIMENSION"
+# Select a fresh identifier and QDRANT_COLLECTION when changing model/preprocessing.
+model_identifier = "qwen3-vl-embedding-8b:frames-2fps-448-v1"
+query_request_builder = "vllm_multimodal"
 
 [embedding_backend.input]
 segment_input_mode = "frames"
 transport = "data_url"
-frame_count = 8
+frames_per_second = 2
 frame_width = 448
 frame_height = 448
 

@@ -1,8 +1,11 @@
 """Validated source snapshots, job reports, and search results."""
 
 from datetime import UTC, datetime
-from typing import Literal, Self
+from itertools import pairwise
+from typing import Annotated, Literal, Self
 
+import numpy as np
+from numpy.typing import NDArray
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -17,6 +20,32 @@ class ValueModel(BaseModel):
     model_config = ConfigDict(
         frozen=True, extra="forbid", allow_inf_nan=False, hide_input_in_errors=True
     )
+
+
+class SampledFrames(ValueModel):
+    """Chronological RGB frames and their actual clip-relative timestamps."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    #: Nonempty uint8 RGB pixels shaped (time, height, width, 3).
+    frames: NDArray[np.uint8]
+    #: Nonnegative presentation times in milliseconds, aligned with the frame axis.
+    timestamps_ms: list[Annotated[int, Field(ge=0, strict=True)]] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_frames(self) -> Self:
+        """Require RGB uint8 pixels, matching counts, and chronological times."""
+        if (
+            self.frames.dtype != np.uint8
+            or self.frames.ndim != 4
+            or self.frames.shape[-1] != 3
+            or any(size == 0 for size in self.frames.shape)
+        ):
+            raise ValueError("Sampled frames must be nonempty RGB uint8 pixels shaped (T, H, W, 3)")
+        if len(self.timestamps_ms) != len(self.frames):
+            raise ValueError("Frame and timestamp counts must match")
+        if any(right < left for left, right in pairwise(self.timestamps_ms)):
+            raise ValueError("Frame timestamps must be chronological")
+        return self
 
 
 class MotionAnalysisParams(ValueModel):

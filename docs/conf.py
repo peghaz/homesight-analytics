@@ -42,7 +42,7 @@ autodoc_default_options = {
     "exclude-members": (
         "model_config,validate_credentials,validate_mode_transport,validate_backend_inputs,"
         "validate_camera_names,validate_motion_decision,normalize_utc,validate_segment_bounds,"
-        "validate_vectors"
+        "validate_vectors,validate_frames"
     ),
 }
 autodoc_typehints = "signature"

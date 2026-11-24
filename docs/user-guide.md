@@ -15,7 +15,7 @@ uv python install 3.12
 uv sync
 ```
 
-HomeSight Core requires GStreamer 1.20+, CMake 3.22+, OpenCV core/imgproc/video, SQLite, and libcurl 7.75+. Python bindings use pybind11 3.0.4+. For other distributions and native details, see the [consumer installation guide](https://github.com/peghaz/homesight-video-consumer/blob/v0.1.0/docs/user-guide.md#installation). Built wheels depend on these system libraries; they are not portable manylinux bundles.
+HomeSight Core requires GStreamer 1.20+, CMake 3.22+, OpenCV core/imgproc/video, SQLite, and libcurl 7.75+. Python bindings use pybind11 3.0.4+. For other distributions and native details, see the [consumer installation guide](https://github.com/peghaz/homesight-video-consumer/blob/v0.1.1/docs/user-guide.md#installation). Built wheels depend on these system libraries; they are not portable manylinux bundles.
 
 Verify the plugins needed for your camera and container:
 
@@ -78,11 +78,11 @@ Select this project's `.venv` Python kernel. Launch from the repository root or 
 
 Reuse the Core notebook’s values under these environment names: `TEST_RTSP_URL`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, and optional `S3_SESSION_TOKEN` (leave the latter present but empty when unused). The existing bucket must be accessible from this host. For a local MinIO started in the consumer repository, the endpoint is typically `http://127.0.0.1:9000`. The application uses `S3_*` names for S3 credentials and connection settings.
 
-Also set `HOMESIGHT_MODEL_BASE_URL`, `HOMESIGHT_MODEL_NAME`, `HOMESIGHT_EMBEDDING_DIMENSION`, and `HOMESIGHT_MODEL_API_KEY` for your actual served embedding model. The tutorial sends sampled JPEG frames by default; the model must support frames and text in one space. Use a new `QDRANT_COLLECTION` for a different model or preprocessing setup. The separate tutorial catalog, staging, and cache live under `data/tutorial/`, and uploaded objects use the `homesight-analytics-tutorial` prefix. They remain after the notebook closes so unfinished work can resume. Use the [offline example](#offline-example) to check wiring before live services are available.
+Also set `HOMESIGHT_MODEL_BASE_URL`, `HOMESIGHT_MODEL_NAME`, `HOMESIGHT_EMBEDDING_DIMENSION`, and `HOMESIGHT_MODEL_API_KEY` for your actual served embedding model. The tutorial samples at 2 fps and sends every selected JPEG together in one chronological segment prompt. Counts depend on duration and available source frames. The endpoint must accept the complete sequence and return one embedding in the text/query space. Set a fresh `model_identifier` in the TOML and a new `QDRANT_COLLECTION` for a different model or preprocessing setup, including migration from eight-frame sampling; [reindex retained footage](#changing-models). The separate tutorial catalog, staging, and cache live under `data/tutorial/`, and uploaded objects use the `homesight-analytics-tutorial` prefix. They remain after the notebook closes so unfinished work can resume. Use the [offline example](#offline-example) to check wiring before live services are available.
 
 ## Configuration
 
-Copy the example environment file and edit both it and the TOML file before recording:
+For file-based configuration, copy the example environment file and edit both it and the TOML file before recording:
 
 ```sh
 cp .env.example .env
@@ -92,7 +92,7 @@ cp .env.example .env
 :language: toml
 ```
 
-All relative filesystem paths, including defaults, resolve against the configuration file's directory. For `configs/example.toml`, `../data/segments` points to the repository's `data/segments`. TOML and YAML use the same typed schema; unknown fields are rejected. Pass `--env-file .env` explicitly: the loader does not search for dotenv files. That argument is relative to the caller's working directory.
+When loading a TOML or YAML file, all relative filesystem paths, including defaults, resolve against the configuration file's directory. For `configs/example.toml`, `../data/segments` points to the repository's `data/segments`. TOML and YAML use the same typed schema; unknown fields are rejected. Pass `--env-file .env` explicitly: the loader does not search for dotenv files. That argument is relative to the caller's working directory.
 
 An `env:NAME` string references a required, case-sensitive environment variable. Missing references fail at loading. Real process environment values take precedence over dotenv values. Camera reference names are chosen by the application, as `FRONT_DOOR_RTSP_URL` is in the example.
 
@@ -134,6 +134,52 @@ verify_tls_certificates = true
 
 Omit `endpoint_url` for the native default AWS endpoint. Recording, downloads, deletion, and signing must use matching bucket, prefix, endpoint, region, and credentials. The bounded local cache pins downloaded files until their media providers close. Downloads exceeding the cache allowance, or a cache fully pinned by active readers, fail explicitly.
 
+### Programmatic configuration and dynamic cameras
+
+TOML, YAML, and `.env` files are optional. Backend applications can construct validated configuration objects directly and store camera definitions in their own database. `SegmentCatalog` stores footage metadata and analytics state; it does not persist the camera registry or RTSP credentials.
+
+Create the catalog, storage configuration, recording settings, and service once in the long-lived recorder process:
+
+```python
+from pathlib import Path
+
+from pydantic import SecretStr
+
+from homesight_analytics import (
+    CameraRecordingService,
+    CameraStreamConfig,
+    HomesightCoreRecordingSource,
+    LocalDirectoryStorageConfig,
+    RecordingConfig,
+    SegmentCatalog,
+)
+
+data_directory: Path = Path("data").resolve()
+catalog = SegmentCatalog(data_directory / "segments.sqlite3")
+storage = LocalDirectoryStorageConfig(root_directory=data_directory / "segments")
+recording_config = RecordingConfig(
+    staging_directory=data_directory / "staging",
+    segment_duration_seconds=10,
+)
+service = CameraRecordingService(segment_catalog=catalog)
+
+
+def add_camera(camera_name: str, rtsp_url: str) -> None:
+    """Register and start a camera in the process owning the service."""
+    camera = CameraStreamConfig(camera_name=camera_name, rtsp_url=SecretStr(rtsp_url))
+    source = HomesightCoreRecordingSource(camera, storage, recording_config)
+    service.add_recording_source(source)
+    service.start_recording_camera(camera_name)
+```
+
+Call `add_camera(camera_name, rtsp_url)` when your backend registers a camera. Names must be unique and match `[a-z0-9_]{1,128}`. Direct constructor paths follow the process's working directory; this example resolves `data/` to an absolute path at startup. Keep the same catalog, archive, and staging paths across restarts. Recording alone needs neither an embedding server nor Qdrant.
+
+Camera commands must reach the process owning `service`, for example through your backend's IPC or command queue. Creating another service in a web request or short-lived task does not control an existing recorder. The backend must persist camera definitions and, after each application restart, load the enabled cameras from its database and call `add_camera()` for each one. Keep the service alive and call `service.check_service_health()` periodically while it consumes recording events.
+
+Use `service.stop_recording_camera(camera_name)` to stop one camera and `service.start_recording_camera(camera_name)` to resume it. Stopping retains registration and exclusive native state ownership. Call `service.close()` during application shutdown to stop all cameras, drain emitted events, and release their resources. There is currently no public method to remove a registered source or replace its RTSP URL; close the existing service before rebuilding it from the desired camera definitions.
+
+S3, embedding, and Qdrant settings also accept programmatic configuration through `S3StorageConfig`, `EmbeddingBackendConfig`, `ModelInputConfig`, and `homesight_analytics.configuration.VectorStoreConfig`. Supply credentials from your backend settings or secret store as `SecretStr` values. See [backend composition](integration.md#backend-composition) and [model input and backend configuration](integration.md#model-input-and-backend-configuration) for composing the storage, embedding, indexing, and search components.
+
 ## Recording
 
 ```sh
@@ -142,13 +188,13 @@ uv run cli.py record configs/example.toml --env-file .env
 
 This starts all configured cameras and continuously commits durable events. Keep this process running while indexing in another process. Ctrl+C or SIGTERM closes owned recorders. Check the process supervisor and logs for actual liveness; a saved status observation is historical.
 
-Each camera needs a unique lowercase name matching `[a-z0-9_]{1,128}`. RTSP uses TCP with 200 ms latency by default. Put the camera URL in the referenced environment variable. Use the actual RTSP URL without VLC's `:rtsp-tcp` option. For URL credential encoding and camera authentication details, see the [consumer camera guide](https://github.com/peghaz/homesight-video-consumer/blob/v0.1.0/docs/user-guide.md#connecting-to-a-camera).
+Each camera needs a unique lowercase name matching `[a-z0-9_]{1,128}`. RTSP uses TCP with 200 ms latency by default. Put the camera URL in the referenced environment variable. Use the actual RTSP URL without VLC's `:rtsp-tcp` option. For URL credential encoding and camera authentication details, see the [consumer camera guide](https://github.com/peghaz/homesight-video-consumer/blob/v0.1.1/docs/user-guide.md#connecting-to-a-camera).
 
 Preserve staging directories across restarts: they contain the native journal and unfinished jobs. Only one recorder can own a camera's native state directory, even while stopped. Destroy the old recorder before replacing it. Use a local filesystem with POSIX locks, fsync, and SQLite WAL; multi-host SQLite workers and network-mounted journals are outside the supported deployment model.
 
 Native defaults allow 2 GiB of local video per camera and a separate 64 MiB journal. Quota eviction can remove completed local clips, including pending uploads; uploaded S3 objects remain available. Successful S3 uploads normally release staging files. Consume events continuously to avoid journal exhaustion. Set `container_format = "matroska"` when interrupted-container recovery is important. Configure closed GOPs and frequent keyframes: actual media duration can exceed the target split interval.
 
-Shutdown commits currently emitted events, while unfinished native work remains in the journal for restart. Stop can include bounded decode or transfer time after the finalization deadline. See [native recovery semantics](https://github.com/peghaz/homesight-video-consumer/blob/v0.1.0/docs/user-guide.md#recording-and-recovery).
+Shutdown commits currently emitted events, while unfinished native work remains in the journal for restart. Stop can include bounded decode or transfer time after the finalization deadline. See [native recovery semantics](https://github.com/peghaz/homesight-video-consumer/blob/v0.1.1/docs/user-guide.md#recording-and-recovery).
 
 ## Finite indexing jobs
 
@@ -192,7 +238,7 @@ Choose the representation supported by your deployed model:
 | --- | --- | --- |
 | `video` | `data_url` | Original container bytes, base64 encoded with their MIME type |
 | `video` | `url` | HTTP(S) URL reachable from the model server |
-| `frames` | `data_url` | Uniformly sampled RGB frames as chronological JPEG image parts |
+| `frames` | `data_url` | Fixed-count or rate-sampled RGB frames as chronological JPEG image parts |
 | `frames` | `tensor` | Batched frame tensor for Triton |
 
 MP4, MOV, and Matroska retain their actual containers. The library performs no automatic video transcoding. Set `mime_type` only when an explicit override is necessary. A local `file://` URI cannot be sent as remote URL input; use inline data or a custom HTTP media provider. S3 URLs require the signing extra and resolved credentials.
@@ -201,17 +247,23 @@ MP4, MOV, and Matroska retain their actual containers. The library performs no a
 [embedding_backend.input]
 segment_input_mode = "frames"
 transport = "data_url"
-frame_count = 8
+frames_per_second = 2
 frame_width = 448
 frame_height = 448
 jpeg_quality = 90
 ```
 
+`frames_per_second` accepts a positive integer and takes precedence over `frame_count`. It requires `segment_input_mode = "frames"`. Omit the rate to preserve uniform fixed-count sampling, with `frame_count = 8` by default; set `frame_count` explicitly for another fixed count.
+
+HomeSight Core v0.1.1 divides each clip-relative second into equal half-open rate intervals and chooses the first decoded frame in each occupied interval, including the partial final second. At 2 fps, a 2.5-second 10 fps clip supplies five frames, while a three-second 1 fps clip supplies three. Empty intervals are not padded and frames are not duplicated. CPU decoding and a ten-second decode timeout remain the native defaults. Native limits of 4096 frames or 1 GiB of output RGB pixels fail explicitly; frames are never silently truncated. Decode, allocation, and native output-limit failures become chained `StorageError` values so later segments can continue.
+
+`media.sample_frames_at_rate(2, 448, 448)` returns validated `SampledFrames`: RGB uint8 pixels shaped `(T, H, W, 3)` and matching chronological clip-relative `timestamps_ms`. The encoders retain these times in `EncodedInput.timestamps_ms` for inspection and custom request builders. Default HTTP requests add no timestamp text or fields.
+
 Override only the mode for one job with `index ... --input-mode frames` or `load_homesight_from_config_file(..., segment_input_mode="frames")`. The selected mode must still be compatible with the configured transport.
 
-The vLLM adapter uses chat-style multimodal `messages` at `/v1/embeddings`, one segment prompt per request. Queries default to text `input` lists. `query_request_builder = "vllm_multimodal"` selects chat-formatted text, and `input.instruction_prefix` prefixes query text. Check your deployed server's chat template and modality support; the repository's fixtures verify request construction, not compatibility with every vLLM release or model.
+The vLLM adapter uses chat-style multimodal `messages` at `/v1/embeddings`, one segment prompt per request containing all selected JPEG image parts in chronological order. The endpoint must accept the complete sequence and return exactly one shared-space vector for the segment; one Qdrant point is stored per segment. Separate per-frame vectors are rejected rather than averaged. Queries default to text `input` lists. `query_request_builder = "vllm_multimodal"` selects chat-formatted text, and `input.instruction_prefix` prefixes query text. Check your deployed server's chat template, image-count limit, and request-size limit; frames are never silently truncated to satisfy them. The repository's fixtures verify request construction, not compatibility with every vLLM release or model.
 
-Triton requires `type = "triton_grpc"`, `server_url`, a served `model_name`, and `frames`/`tensor` input. Configure `segment_input_tensor_name`, `text_input_tensor_name`, `output_tensor_name`, `model_version`, and `use_ssl` for your model. The default tensor is uint8 BTHWC; `BTCHW` is also supported. Float32 retains pixel values in the 0–255 range. Model-specific normalization requires an encoder adapter. The model must accept video and text independently; see [Triton reference](#optional-triton-backend).
+Triton requires `type = "triton_grpc"`, `server_url`, a served `model_name`, and `frames`/`tensor` input. Configure `segment_input_tensor_name`, `text_input_tensor_name`, `output_tensor_name`, `model_version`, and `use_ssl` for your model. The default tensor is uint8 BTHWC; `BTCHW` is also supported. Float32 retains pixel values in the 0–255 range. Equal-shaped segment tensors are batched; different shapes are submitted separately, with vectors restored to input order. Rate sampling usually needs a dynamic time dimension (`-1`) in server metadata, for example `[-1, -1, 448, 448, 3]` for BTHWC. Every submitted tensor must match the declared shape and dtype. Model-specific normalization requires an encoder adapter. The model must accept video and text independently; see [Triton reference](#optional-triton-backend).
 
 ## Search and playback
 
@@ -261,9 +313,19 @@ intervals = search.find_time_intervals_matching_text(
 
 ### Changing models
 
-Each Qdrant collection owns one model identifier, dimension, and metric. Unowned or incompatible collections are rejected, even if dimensions match. Set a distinct `model_identifier` whenever weights, instructions, input mode, or preprocessing change the embedding space.
+Each Qdrant collection owns one model identifier, dimension, and metric. Unowned or incompatible collections are rejected, even if dimensions match. Set a distinct `model_identifier` whenever weights, instructions, input mode, sampling choice/rate/count, frame dimensions, or other preprocessing change the embedding space. For example, use `your-model:frames-2fps-448-v1` and a fresh collection `segments_2fps_v1` when migrating from eight fixed frames.
 
 Stop old-model analytics workers, select a new collection, load the new components, call `components.catalog.mark_segments_for_reindexing()`, and index retained footage again. Keep the old collection until your application no longer needs it. The catalog tracks one active indexing model; simultaneous independent model spaces require separate catalogs. Deleted footage cannot be reindexed.
+
+With the updated model identifier, input settings, and collection in your configuration:
+
+```python
+with load_homesight_from_config_file(Path("configs/tutorial.toml"), Path(".env")) as components:
+    components.catalog.mark_segments_for_reindexing()
+    report = components.analytics_service.analyze_stream("example_trial")
+```
+
+No catalog schema migration or search API change is needed.
 
 ## Status and logging
 

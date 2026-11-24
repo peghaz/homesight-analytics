@@ -106,14 +106,16 @@ class RecordingConfig(ValueModel):
 class ModelInputConfig(ValueModel):
     """Select whole videos or sampled frames without changing pipeline code."""
 
-    #: Send the original video container or uniformly sampled frames.
+    #: Send the original video container or a chronological sampled frame sequence.
     segment_input_mode: Literal["video", "frames"] = "video"
     #: Inline data URL, remote HTTP(S) URL, or frame tensor.
     transport: Literal["data_url", "url", "tensor"] = "data_url"
     #: Optional video MIME override; otherwise infer the stored container type.
     mime_type: str | None = None
-    #: Number of chronological sampled RGB frames per segment.
+    #: Uniform frame count per segment when frames_per_second is None.
     frame_count: int = Field(default=8, ge=1)
+    #: Positive rate overriding frame_count; None preserves fixed-count sampling.
+    frames_per_second: int | None = Field(default=None, gt=0, strict=True)
     #: Requested sampled-frame width in pixels.
     frame_width: int = Field(default=448, ge=8)
     #: Requested sampled-frame height in pixels.
@@ -134,6 +136,8 @@ class ModelInputConfig(ValueModel):
     @model_validator(mode="after")
     def validate_mode_transport(self) -> "ModelInputConfig":
         """Reject unsupported combinations before reading any media."""
+        if self.segment_input_mode == "video" and self.frames_per_second is not None:
+            raise ValueError("Rate sampling requires frames input mode")
         if self.segment_input_mode == "video" and self.transport == "tensor":
             raise ValueError("Video mode requires data_url or url transport")
         if self.segment_input_mode == "frames" and self.transport == "url":

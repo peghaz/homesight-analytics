@@ -13,6 +13,7 @@ from .models import (
     MotionAnalysisParams,
     MotionInfo,
     RecordingObservation,
+    SampledFrames,
     SegmentEvent,
     SegmentRecord,
 )
@@ -93,6 +94,17 @@ class SegmentMediaProvider(Protocol):
         traceback: TracebackType | None,
     ) -> None:
         """Release media after use."""
+        ...
+
+
+@runtime_checkable
+class RateSamplingMediaProvider(Protocol):
+    """Optional rate-sampling capability, independent of SegmentMediaProvider."""
+
+    def sample_frames_at_rate(
+        self, frames_per_second: int, frame_width: int, frame_height: int
+    ) -> SampledFrames:
+        """Select distinct frames in occupied rate intervals without padding."""
         ...
 
 

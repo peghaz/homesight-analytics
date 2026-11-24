@@ -20,13 +20,18 @@ rtsp_url = "env:FRONT_DOOR_RTSP_URL"
 
 [embedding_backend]
 type = "vllm"
-model_name = "replace-with-served-multimodal-model"
-embedding_dimension = 1024 # Replace with the deployed model's actual dimension.
-base_url = "http://localhost:8000/v1"
+model_name = "env:HOMESIGHT_MODEL_NAME"
+embedding_dimension = "env:HOMESIGHT_EMBEDDING_DIMENSION"
+base_url = "env:HOMESIGHT_MODEL_BASE_URL"
+model_identifier = "qwen3-vl-embedding-8b:frames-2fps-448-v1"
+query_request_builder = "vllm_multimodal"
 
 [embedding_backend.input]
-segment_input_mode = "video" # Or "frames".
-transport = "data_url" # Use "url" for accessible S3 video; "tensor" for Triton frames.
+segment_input_mode = "frames"
+transport = "data_url"
+frames_per_second = 2
+frame_width = 448
+frame_height = 448
 
 [vector_store]
 host = "env:QDRANT_HOST"

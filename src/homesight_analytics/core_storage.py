@@ -23,6 +23,7 @@ from .core_recording import create_native_storage_config
 from .errors import ConfigurationError, StorageError
 from .interfaces import SegmentStorageReader
 from .logging import get_logger
+from .models import SampledFrames
 
 logger = get_logger("storage")
 
@@ -253,8 +254,24 @@ class StoredSegmentMediaProvider:
                 frame_width,
                 frame_height,
             )
-        except core.SegmentDecodingError as exc:
+        except (core.SegmentDecodingError, core.InvalidConfigError, MemoryError) as exc:
             raise StorageError("Could not decode segment frames") from exc
+
+    def sample_frames_at_rate(
+        self, frames_per_second: int, frame_width: int, frame_height: int
+    ) -> SampledFrames:
+        """Sample occupied rate intervals using Core's CPU and ten-second defaults.
+
+        The partial final second is included. Native output limits fail explicitly;
+        frames are never duplicated, padded, or silently truncated.
+        """
+        try:
+            frames, timestamps_ms = core.sample_clip_frames_from_segment_at_rate(
+                self.get_local_segment_path(), frames_per_second, frame_width, frame_height
+            )
+        except (core.SegmentDecodingError, core.InvalidConfigError, MemoryError) as exc:
+            raise StorageError("Could not sample segment frames at the requested rate") from exc
+        return SampledFrames(frames=frames, timestamps_ms=timestamps_ms)
 
     def close(self) -> None:
         """Release this provider's cache pin."""
